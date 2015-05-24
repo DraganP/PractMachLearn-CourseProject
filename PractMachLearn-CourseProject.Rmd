@@ -1,0 +1,116 @@
+Evaluating Weight Lifting Exercises Using Machine Learning
+===========================================================
+
+###Author: Dragan Popovich
+
+##Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Pre-Processing the Data
+The training and testing data files were downloaded into the working directory, and necessary R libraries were loaded. The training and testing files were then loaded into data frames.
+```{r}
+library(caret); library(rpart); library(rpart.plot); library(randomForest); library(corrplot)
+setwd("C:/Users/v-drapop/Documents/Coursera/DataScience/8-PracticalMachineLearning/CourseProject")
+trainRaw <- read.csv("pml-training.csv")
+testRaw <- read.csv("pml-testing.csv")
+dim(trainRaw)
+dim(testRaw)
+```
+
+##Cleaning the Data
+The raw training data frame contains 19,622 observations with 160 variables, and the raw test data frame contains 20 observations with 160 variables. The variable that we will use to predict is classe, and it has five levels, A - E.
+
+Many of those 160 variabes are missing, so we will eliminate all of the variables that do not contain any meaningful data. We will remove the N/As first, and then we will remove the timestamp and window variables.
+
+```{r}
+trainRaw <- trainRaw[, colSums(is.na(trainRaw)) == 0]
+testRaw <- testRaw[, colSums(is.na(testRaw)) == 0]
+classe <- trainRaw$classe
+
+trainRemove <- grepl("^X|timestamp|window", names(trainRaw))
+trainRaw <- trainRaw[, !trainRemove]
+trainCleaned <- trainRaw[, sapply(trainRaw, is.numeric)]
+trainCleaned$classe <- classe
+
+testRemove <- grepl("^X|timestamp|window", names(testRaw))
+testRaw <- testRaw[, !testRemove]
+testCleaned <- testRaw[, sapply(testRaw, is.numeric)]
+```
+
+After cleaning the data we have reduced the number of variables to 53 in both data frames (training and test), and we also made sure that the classe variable is still in the training data set.
+
+##Training and Validation Data
+We will divide the cleaned training data set into two parts: one used for actually training the model (70% of the data), and the other that can be used for cross-validation (30% of the data). We will set the seed to ensure reproducibility.
+
+```{r}
+set.seed(9369)
+inTrain <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainData <- trainCleaned[inTrain, ]
+validationData <- trainCleaned[-inTrain, ]
+```
+
+##Building the Model
+We will use the Random Forest algorithm to create a model to predict the classe variable. (Notice: running this model took over 5 hours on my computer, so I saved the model as an object to a .rds file so that I don't have to rerun it while creating this report.)
+
+```{r}
+# model = train(classe~., method="rf", data=trainData)
+# saveRDS(model, "RFmodel.rds")
+model <- readRDS("RFmodel.rds")
+```
+
+##Evaluating the Model
+Having trained the model on the training data set, we will now evaluate it using the validation data set, i.e. the 30% of the data set we set aside. We will then estimate model accuracy and out-of-sample error.
+
+```{r}
+predictRF <- predict(model, validationData)
+confusionMatrix(validationData$classe, predictRF)
+accuracy <- postResample(predictRF, validationData$classe)
+accuracy
+oose <- 1 - as.numeric(confusionMatrix(validationData$classe, predictRF)$overall[1])
+oose
+```
+
+From these results we can estimate that the predicted accuracy of the model is 99.3%, while the out-of-sample error is 0.7%.
+
+##Predicting with the Model
+We will now use the model to make predictions on the test data set, i.e. the data set that was downloaded from the authors of the study. We need to remove the problem_id column from that data set first.
+
+```{r}
+testCleaned1 <- subset(testCleaned, select = -problem_id)
+result <- predict(model, testCleaned1)
+result
+```
+
+##Figures
+
+###Correlation Matrix
+```{r}
+corrMatrix <- cor(trainData[, -length(names(trainData))])
+corrplot(corrMatrix, method="color")
+```
+
+###Relative Importance of Variables
+```{r}
+print(plot(varImp(model, scale = FALSE)))
+```
+
+###Decision Tree
+```{r}
+modelTree <- rpart(classe ~ ., data=trainData, method="class")
+prp(modelTree)
+```
+
+##Creating the Output Files
+```{r}
+#pml_write_files = function(x){
+#+     n = length(x)
+#+     for(i in 1:n){
+#+         filename = paste0("problem_id_",i,".txt")
+#+         write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+#+     }
+#+ }
+ 
+#pml_write_files(result)
+```
